@@ -1,0 +1,106 @@
+x-service: &service
+  build: .
+  restart: unless-stopped
+  environment: &env
+    RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    PORT: 3000
+  networks: [saga]
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    hostname: rabbitmq
+    ports: ["15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    networks: [saga]
+  orchestrator-db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: saga, POSTGRES_PASSWORD: saga_dev, POSTGRES_DB: saga}
+    volumes: [orchestrator_data:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U saga"], interval: 5s, retries: 15}
+    networks: [saga]
+  order-db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: saga, POSTGRES_PASSWORD: saga_dev, POSTGRES_DB: saga}
+    volumes: [order_data:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U saga"], interval: 5s, retries: 15}
+    networks: [saga]
+  inventory-db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: saga, POSTGRES_PASSWORD: saga_dev, POSTGRES_DB: saga}
+    volumes: [inventory_data:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U saga"], interval: 5s, retries: 15}
+    networks: [saga]
+  payment-db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: saga, POSTGRES_PASSWORD: saga_dev, POSTGRES_DB: saga}
+    volumes: [payment_data:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U saga"], interval: 5s, retries: 15}
+    networks: [saga]
+  orchestrator:
+    <<: *service
+    environment:
+      <<: *env
+      SERVICE: orchestrator
+      DATABASE_URL: postgres://saga:saga_dev@orchestrator-db:5432/saga
+    ports: ["8080:3000"]
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+      orchestrator-db: {condition: service_healthy}
+  order:
+    <<: *service
+    environment:
+      <<: *env
+      SERVICE: order
+      DATABASE_URL: postgres://saga:saga_dev@order-db:5432/saga
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+      order-db: {condition: service_healthy}
+  inventory:
+    <<: *service
+    environment:
+      <<: *env
+      SERVICE: inventory
+      DATABASE_URL: postgres://saga:saga_dev@inventory-db:5432/saga
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+      inventory-db: {condition: service_healthy}
+  payment:
+    <<: *service
+    environment:
+      <<: *env
+      SERVICE: payment
+      DATABASE_URL: postgres://saga:saga_dev@payment-db:5432/saga
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+      payment-db: {condition: service_healthy}
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes: ["./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+    networks: [saga]
+  grafana:
+    image: grafana/grafana:11.3.1
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin_dev
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./observability/dashboard-provider.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
+      - ./observability/dashboard.json:/var/lib/grafana/dashboards/saga.json:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+    networks: [saga]
+networks:
+  saga: {}
+volumes:
+  orchestrator_data: {}
+  order_data: {}
+  inventory_data: {}
+  payment_data: {}
+  grafana_data: {}

@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: saga-services
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['orchestrator:3000','order:3000','inventory:3000','payment:3000']
