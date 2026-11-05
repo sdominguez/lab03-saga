@@ -1,4 +1,4 @@
-# Saga Lab — arquitectura modular
+# Saga Lab
 
 ## Estructura
 
