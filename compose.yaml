@@ -5,6 +5,7 @@ x-service: &service
     RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
     PORT: 3000
   networks: [saga]
+
 services:
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
@@ -16,73 +17,71 @@ services:
       timeout: 10s
       retries: 12
     networks: [saga]
-  orchestrator-db:
+
+  postgres:
     image: postgres:16-alpine
-    environment: {POSTGRES_USER: saga, POSTGRES_PASSWORD: saga_dev, POSTGRES_DB: saga}
-    volumes: [orchestrator_data:/var/lib/postgresql/data]
-    healthcheck: {test: ["CMD-SHELL", "pg_isready -U saga"], interval: 5s, retries: 15}
+    environment:
+      POSTGRES_USER: saga
+      POSTGRES_PASSWORD: saga_dev
+      POSTGRES_DB: saga
+    volumes:
+      - saga_postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saga -d saga"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
     networks: [saga]
-  order-db:
-    image: postgres:16-alpine
-    environment: {POSTGRES_USER: saga, POSTGRES_PASSWORD: saga_dev, POSTGRES_DB: saga}
-    volumes: [order_data:/var/lib/postgresql/data]
-    healthcheck: {test: ["CMD-SHELL", "pg_isready -U saga"], interval: 5s, retries: 15}
-    networks: [saga]
-  inventory-db:
-    image: postgres:16-alpine
-    environment: {POSTGRES_USER: saga, POSTGRES_PASSWORD: saga_dev, POSTGRES_DB: saga}
-    volumes: [inventory_data:/var/lib/postgresql/data]
-    healthcheck: {test: ["CMD-SHELL", "pg_isready -U saga"], interval: 5s, retries: 15}
-    networks: [saga]
-  payment-db:
-    image: postgres:16-alpine
-    environment: {POSTGRES_USER: saga, POSTGRES_PASSWORD: saga_dev, POSTGRES_DB: saga}
-    volumes: [payment_data:/var/lib/postgresql/data]
-    healthcheck: {test: ["CMD-SHELL", "pg_isready -U saga"], interval: 5s, retries: 15}
-    networks: [saga]
+
   orchestrator:
     <<: *service
     environment:
       <<: *env
       SERVICE: orchestrator
-      DATABASE_URL: postgres://saga:saga_dev@orchestrator-db:5432/saga
+      DATABASE_URL: "postgres://saga:saga_dev@postgres:5432/saga?options=-csearch_path%3Dorchestrator"
     ports: ["8080:3000"]
     depends_on:
       rabbitmq: {condition: service_healthy}
-      orchestrator-db: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+
   order:
     <<: *service
     environment:
       <<: *env
       SERVICE: order
-      DATABASE_URL: postgres://saga:saga_dev@order-db:5432/saga
+      DATABASE_URL: "postgres://saga:saga_dev@postgres:5432/saga?options=-csearch_path%3Dorders"
     depends_on:
       rabbitmq: {condition: service_healthy}
-      order-db: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+
   inventory:
     <<: *service
     environment:
       <<: *env
       SERVICE: inventory
-      DATABASE_URL: postgres://saga:saga_dev@inventory-db:5432/saga
+      DATABASE_URL: "postgres://saga:saga_dev@postgres:5432/saga?options=-csearch_path%3Dinventory"
     depends_on:
       rabbitmq: {condition: service_healthy}
-      inventory-db: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+
   payment:
     <<: *service
     environment:
       <<: *env
       SERVICE: payment
-      DATABASE_URL: postgres://saga:saga_dev@payment-db:5432/saga
+      DATABASE_URL: "postgres://saga:saga_dev@postgres:5432/saga?options=-csearch_path%3Dpayment"
     depends_on:
       rabbitmq: {condition: service_healthy}
-      payment-db: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+
   prometheus:
     image: prom/prometheus:v2.55.1
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     volumes: ["./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
     ports: ["9090:9090"]
     networks: [saga]
+
   grafana:
     image: grafana/grafana:11.3.1
     environment:
@@ -96,11 +95,9 @@ services:
     ports: ["3000:3000"]
     depends_on: [prometheus]
     networks: [saga]
+
 networks:
   saga: {}
 volumes:
-  orchestrator_data: {}
-  order_data: {}
-  inventory_data: {}
-  payment_data: {}
+  saga_postgres_data: {}
   grafana_data: {}
